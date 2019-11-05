@@ -291,9 +291,6 @@ class Example(QWidget):
             self.image = cv2.Canny(self.image, self.canny_1, self.canny_2, self.canny_3)
 
         if (self.contours):
-            #contours, hierarchy = cv2.findContours(self.image,  cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE) 
-            #cv2.drawContours(self.image, contours, -1, (0, 255, 0), 3) 
-
             cnts = cv2.findContours(self.image.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cnts = imutils.grab_contours(cnts)
             cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
