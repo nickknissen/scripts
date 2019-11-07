@@ -2,33 +2,13 @@
 # python recognize_digits.py
 
 # import the necessary packages
-import pytesseract
-from PIL import Image
 from imutils.contours import sort_contours
 from imutils import contours
 from imutils.perspective import four_point_transform, order_points
 import numpy as np
 import imutils
 import cv2
-
-def find_biggest_contour(image):
-    # Copy
-    image = image.copy()
-    #input, gives all the contours, contour approximation compresses horizontal,
-    #vertical, and diagonal segments and leaves only their end points. For example,
-    #an up-right rectangular contour is encoded with 4 points.
-    #Optional output vector, containing information about the image topology.
-    #It has as many elements as the number of contours.
-    #we dont need it
-    _, contours, hierarchy = cv2.findContours(image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Isolate largest contour
-    contour_sizes = [(cv2.contourArea(contour), contour) for contour in contours]
-    biggest_contour = max(contour_sizes, key=lambda x: x[0])[1]
-
-    mask = np.zeros(image.shape, np.uint8)
-    cv2.drawContours(mask, [biggest_contour], -1, 255, -1)
-    return biggest_contour, mask 
+import utils
 
 # define the dictionary of digit segments so we can identify
 # each digit on the thermostat
@@ -55,20 +35,35 @@ DIGITS_LOOKUP = {
 	(1, 1, 1, 1, 0, 1, 1): 9
 }
 
-# load the example image
-image = cv2.imread("images/Capture2.PNG")
 
-cv2.imshow("test", image)
+
+image = cv2.imread("images/Captur8.jpg")
+
+cv2.imshow("src", image)
+
 # pre-process the image by resizing it, converting it to
 # graycale, blurring it, and computing an edge map
 image = imutils.resize(image, height=500)
+image = cv2.rotate(image, rotateCode=cv2.ROTATE_180)
+
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-blurred = cv2.GaussianBlur(gray, (5, 5), 1)
+blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 edged = cv2.Canny(blurred, 10, 200, 255)
+try:
+	rotation_deg = utils.detect_angle(edged)
+	print(f"rotation_deg {rotation_deg }")
+except:
+	print(f"Could not get rotation_deg")
+	rotation_deg = 0
 
-cv2.imshow("countours", edged)
+edged = utils.rotate_image(edged, rotation_deg)
+gray= utils.rotate_image(gray, rotation_deg)
+image= utils.rotate_image(image, rotation_deg)
+
+cv2.imshow("edged", edged)
 cv2.waitKey(0)
+
 # find contours in the edge map, then sort them by their
 # size in descending order
 cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -97,17 +92,18 @@ output = four_point_transform(image, displayCnt.reshape(4, 2))
 cv2.imshow("warped", warped)
 cv2.imshow("output", output)
 
-# threshold the warped image, then apply a series of morphological
+# threshold the warped image, then apply a series of morphologicalww
 # operations to cleanup the thresholded image
-thresh = cv2.adaptiveThreshold(warped, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 13,3)
-kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (1, 9))
-thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
 
-thresh = cv2.bitwise_not(thresh)
+thresh = cv2.adaptiveThreshold(warped, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV , 11,4)
+kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+cv2.imshow("thresh", thresh) 
+
 
 # find contours in the thresholded image, then initialize the
 # digit contours lists
-cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
+cnts = cv2.findContours(thresh.copy(), 1, 2)
 cnts = imutils.grab_contours(cnts)
 digitCnts = []
 
@@ -117,17 +113,17 @@ for c in cnts:
 	(x, y, w, h) = cv2.boundingRect(c)
 
 	# if the contour is sufficiently large, it must be a digit
-	if (h >= 40 and h <= 100):
+	if (h >= 30 and h <= 150):
 		digitCnts.append(c)
 		cv2.rectangle(output, (x,y), (x+w,y+h), (255, 0, 0), 2)
 		#cv2.putText(output, f"w{w}:h{h}, ",(x,y),1,1,(0,255,0))
-	#else:
-		#cv2.rectangle(output, (x,y), (x+w,y+h), (0, 0, 255), 2)
+	else:
+		cv2.rectangle(output, (x,y), (x+w,y+h), (0, 0, 255), 1)
 		#cv2.putText(output, f"w{w}:h{h}, ",(x,y),1,1,(0,255,0))
 
-cv2.imshow("contours", output)
-cv2.waitKey(0)
 
+#cv2.drawContours(output, cnts, -1, (0,255,0), 2)
+cv2.imshow("contours", output)
 # sort the contours from left-to-right, then initialize the
 # actual digits themselves
 digitCnts = sort_contours(digitCnts, method="left-to-right")[0]
@@ -172,14 +168,18 @@ for c in digitCnts:
 			on[i]= 1
 
 	# lookup the digit and draw it on the image
-	digit = DIGITS_LOOKUP[tuple(on)]
+	try:
+		digit = DIGITS_LOOKUP[tuple(on)]
+		print(digit)
+	except KeyError:
+		continue
 	digits.append(digit)
-	cv2.rectangle(output, (x, y), (x + w, y + h), (0, 255, 0), 1)
+	#cv2.rectangle(output, (x, y), (x + w, y + h), (0, 255, 0), 1)
 	cv2.putText(output, str(digit), (x - 10, y - 10),
 		cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
 
-# display the digits
-print(u"{}{}.{} \u00b0C".format(*digits))
+#image display the digits
+print(digits)
 cv2.imshow("Input", image)
 cv2.imshow("Output", output)
 cv2.waitKey(0)
